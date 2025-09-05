@@ -1,0 +1,7 @@
+# .gitignore
+__pycache__/
+*.pyc
+.env
+service_account.json
+.vscode/
+node_modules/

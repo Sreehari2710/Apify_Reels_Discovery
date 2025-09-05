@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Instagram Tools</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Poppins', sans-serif;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+/* Navigation Styling */
+nav {
+    background: linear-gradient(45deg, #E1306C, #F77737, #C13584);
+    padding: 20px;
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    margin: -20px -20px 20px -20px;
+    border-radius: 0;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 16px;
+    padding: 10px 20px;
+    border-radius: 25px;
+    transition: all 0.3s ease;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+nav a:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.main-container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header {
+  background: linear-gradient(45deg, #E1306C, #F77737, #C13584, #405DE6);
+  color: white;
+  text-align: center;
+  padding: 30px 25px;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  margin-bottom: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    animation: shimmer 3s infinite;
+}
+
+@keyframes shimmer {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+.header h1 {
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin: 0;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  position: relative;
+}
+
+.header p {
+  margin-top: 10px;
+  font-size: 1.1rem;
+  opacity: 0.9;
+  font-weight: 300;
+  position: relative;
+}
+
+.forms-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+  background: white;
+  border-radius: 0 0 20px 20px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+
+.form-section {
+  padding: 30px;
+  border-right: 1px solid #f0f0f0;
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+}
+
+.form-section:last-child {
+  border-right: none;
+}
+
+.section-header {
+  margin-bottom: 25px;
+  text-align: center;
+}
+
+.section-title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.section-subtitle {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 300;
+}
+
+.form-group {
+  margin-bottom: 20px;
+  flex-grow: 1;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.input-wrapper {
+  position: relative;
+}
+
+.input-icon {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #999;
+  font-size: 1rem;
+  z-index: 1;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 15px;
+  border: 2px solid #e8e8e8;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-family: 'Poppins', sans-serif;
+  transition: all 0.3s ease;
+  background: #fafafa;
+}
+
+.form-input.with-icon {
+  padding-left: 45px;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #E1306C;
+  background: white;
+  box-shadow: 0 0 0 3px rgba(225, 48, 108, 0.1);
+  transform: translateY(-1px);
+}
+
+.form-input:hover {
+  border-color: #ddd;
+  background: white;
+}
+
+.file-input-wrapper {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+.file-input-wrapper input[type=file] {
+  position: absolute;
+  left: -9999px;
+}
+
+.file-input-label {
+  width: 100%;
+  padding: 12px 15px;
+  border: 2px dashed #e8e8e8;
+  border-radius: 12px;
+  background: #fafafa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  font-size: 0.95rem;
+  color: #666;
+}
+
+.file-input-label:hover {
+  border-color: #E1306C;
+  background: #fff;
+  color: #E1306C;
+}
+
+.file-input-label i {
+  margin-right: 10px;
+  font-size: 1.1rem;
+}
+
+.submit-btn {
+  background: linear-gradient(45deg, #E1306C, #F77737);
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 500;
+  font-family: 'Poppins', sans-serif;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(225, 48, 108, 0.3);
+  width: 100%;
+  margin-top: auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.submit-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    transition: left 0.5s;
+}
+
+.submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(225, 48, 108, 0.4);
+  background: linear-gradient(45deg, #C13584, #E1306C);
+}
+
+.submit-btn:hover::before {
+    left: 100%;
+}
+
+.submit-btn:active {
+  transform: translateY(0);
+}
+
+.status {
+  margin-top: 15px;
+  padding: 10px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 500;
+  min-height: 20px;
+}
+
+.status:empty {
+  display: none;
+}
+
+.status.loading {
+  background: linear-gradient(45deg, #405DE6, #C13584);
+  color: white;
+  animation: pulse 1.5s infinite;
+}
+
+.status.success {
+  background: linear-gradient(45deg, #4CAF50, #8BC34A);
+  color: white;
+}
+
+.status.error {
+  background: linear-gradient(45deg, #f44336, #ff5722);
+  color: white;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+/* Loading animation for buttons */
+.submit-btn.loading {
+  pointer-events: none;
+  color: transparent;
+}
+
+.submit-btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  top: 50%;
+  left: 50%;
+  margin-left: -10px;
+  margin-top: -10px;
+  border: 2px solid transparent;
+  border-top: 2px solid #ffffff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .forms-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    height: auto;
+    gap: 1px;
+  }
+  
+  .form-section.hashtag,
+  .form-section.collaborated,
+  .form-section.tagged {
+    grid-row: auto;
+  }
+  
+  .header h1 {
+    font-size: 2rem;
+  }
+}
+
+@media (max-width: 768px) {
+  body {
+    padding: 0;
+  }
+  
+  nav {
+    padding: 15px;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin: 0 0 20px 0;
+  }
+
+  nav a {
+    font-size: 14px;
+    padding: 8px 16px;
+  }
+  
+  .main-container {
+    padding: 0 10px;
+  }
+  
+  .header {
+    padding: 20px;
+    border-radius: 15px 15px 0 0;
+  }
+  
+  .header h1 {
+    font-size: 1.8rem;
+  }
+  
+  .form-section {
+    padding: 20px;
+  }
+  
+  .forms-grid {
+    border-radius: 0 0 15px 15px;
+  }
+}
+
+@media (max-width: 480px) {
+  nav a {
+    font-size: 13px;
+    padding: 6px 12px;
+  }
+}
+</style>
+</head>
+<body>
+  <nav>
+    <a href="/">🔍 Discover</a>
+    <a href="/filter">⚙️ Filter</a>
+  </nav>
+
+<div class="main-container">
+  <div class="header">
+    <h1><i class="fab fa-instagram"></i> Instagram Tools</h1>
+    <p>Professional Instagram data collection and analysis suite</p>
+  </div>
+
+  <div class="forms-grid">
+    <!-- Hashtag Form -->
+    <div class="form-section">
+      <div class="section-header">
+        <div class="section-title"># Hashtag Reels</div>
+        <div class="section-subtitle">Extract reels from hashtags</div>
+      </div>
+      
+      <form id="hashtagForm">
+        <div class="form-group">
+          <label class="form-label">Hashtag (optional)</label>
+          <div class="input-wrapper">
+            <i class="fas fa-hashtag input-icon"></i>
+            <input type="text" name="hashtag" class="form-input with-icon" placeholder="Enter hashtag">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">CSV File (hashtag column)</label>
+          <div class="file-input-wrapper">
+            <input type="file" name="csv_file" accept=".csv" id="hashtag-csv">
+            <label for="hashtag-csv" class="file-input-label">
+              <i class="fas fa-upload"></i> Choose CSV file
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Reels per hashtag</label>
+          <div class="input-wrapper">
+            <i class="fas fa-film input-icon"></i>
+            <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="1000">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Filename</label>
+          <div class="input-wrapper">
+            <i class="fas fa-file input-icon"></i>
+            <input type="text" name="filename" value="hashtag_reels_export" class="form-input with-icon">
+          </div>
+        </div>
+
+        <button type="submit" class="submit-btn">
+          <i class="fas fa-download"></i> Fetch & Download CSV
+        </button>
+        <div id="status1" class="status"></div>
+      </form>
+    </div>
+
+    <!-- Brandpage Reels Form -->
+    <div class="form-section">
+      <div class="section-header">
+        <div class="section-title">🤝 Collaborated Reels</div>
+        <div class="section-subtitle">Find brand collaborations</div>
+      </div>
+      
+      <form id="brandpageForm">
+        <div class="form-group">
+          <label class="form-label">Brandpage (optional)</label>
+          <div class="input-wrapper">
+            <i class="fas fa-at input-icon"></i>
+            <input type="text" name="brandpage" class="form-input with-icon" placeholder="Enter username">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">CSV File (brandpage column)</label>
+          <div class="file-input-wrapper">
+            <input type="file" name="csv_file" accept=".csv" id="brandpage-csv">
+            <label for="brandpage-csv" class="file-input-label">
+              <i class="fas fa-upload"></i> Choose CSV file
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Reels per brandpage</label>
+          <div class="input-wrapper">
+            <i class="fas fa-film input-icon"></i>
+            <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="100">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Filename</label>
+          <div class="input-wrapper">
+            <i class="fas fa-file input-icon"></i>
+            <input type="text" name="filename" value="brandpage_reels_export" class="form-input with-icon">
+          </div>
+        </div>
+
+        <button type="submit" class="submit-btn">
+          <i class="fas fa-download"></i> Fetch & Download CSV
+        </button>
+        <div id="status2" class="status"></div>
+      </form>
+    </div>
+
+    <!-- Tagged Reels Form -->
+    <div class="form-section">
+      <div class="section-header">
+        <div class="section-title">🏷️ Tagged Reels</div>
+        <div class="section-subtitle">Extract tagged content</div>
+      </div>
+      
+      <form id="brandpageTaggedForm">
+        <div class="form-group">
+          <label class="form-label">Brandpage (optional)</label>
+          <div class="input-wrapper">
+            <i class="fas fa-at input-icon"></i>
+            <input type="text" name="brandpage" class="form-input with-icon" placeholder="Enter username">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">CSV File (brandpage column)</label>
+          <div class="file-input-wrapper">
+            <input type="file" name="csv_file" accept=".csv" id="tagged-csv">
+            <label for="tagged-csv" class="file-input-label">
+              <i class="fas fa-upload"></i> Choose CSV file
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Tagged reels per brandpage</label>
+          <div class="input-wrapper">
+            <i class="fas fa-film input-icon"></i>
+            <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="100">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Filename</label>
+          <div class="input-wrapper">
+            <i class="fas fa-file input-icon"></i>
+            <input type="text" name="filename" value="brandpage_tagged_export" class="form-input with-icon">
+          </div>
+        </div>
+
+        <button type="submit" class="submit-btn">
+          <i class="fas fa-download"></i> Fetch & Download CSV
+        </button>
+        <div id="status3" class="status"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+async function handleForm(formId, url, statusId){
+  const form = document.getElementById(formId);
+  const statusEl = document.getElementById(statusId);
+  const submitBtn = form.querySelector('.submit-btn');
+  
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    
+    // Update UI for loading state
+    statusEl.textContent = "Processing your request...";
+    statusEl.className = "status loading";
+    submitBtn.classList.add('loading');
+    submitBtn.disabled = true;
+    
+    try {
+      const res = await fetch(url, {method: 'POST', body: fd});
+      if (!res.ok) throw new Error(await res.text());
+      
+      const blob = await res.blob();
+      const filename = (fd.get('filename') || 'export') + '.csv';
+      const urlBlob = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = urlBlob; 
+      a.download = filename; 
+      document.body.appendChild(a); 
+      a.click(); 
+      a.remove();
+      window.URL.revokeObjectURL(urlBlob);
+      
+      statusEl.textContent = "✅ Download completed successfully!";
+      statusEl.className = "status success";
+      
+      // Reset after 3 seconds
+      setTimeout(() => {
+        statusEl.textContent = "";
+        statusEl.className = "status";
+      }, 3000);
+      
+    } catch(err) {
+      statusEl.textContent = "❌ " + err.message;
+      statusEl.className = "status error";
+      
+      // Reset after 5 seconds
+      setTimeout(() => {
+        statusEl.textContent = "";
+        statusEl.className = "status";
+      }, 5000);
+    } finally {
+      submitBtn.classList.remove('loading');
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+// Initialize all forms
+handleForm('hashtagForm', '/fetch', 'status1');
+handleForm('brandpageForm', '/brandpage-reels', 'status2');
+handleForm('brandpageTaggedForm', '/brandpage-tagged', 'status3');
+
+// File input labels update
+document.addEventListener('change', function(e) {
+  if (e.target.type === 'file') {
+    const label = e.target.parentNode.querySelector('.file-input-label');
+    if (e.target.files.length > 0) {
+      label.innerHTML = `<i class="fas fa-check-circle"></i> ${e.target.files[0].name}`;
+      label.style.color = '#E1306C';
+      label.style.borderColor = '#E1306C';
+    } else {
+      label.innerHTML = '<i class="fas fa-upload"></i> Choose CSV file';
+      label.style.color = '#666';
+      label.style.borderColor = '#e8e8e8';
+    }
+  }
+});
+
+// Reset loading states on page load
+window.addEventListener('DOMContentLoaded', function() {
+  const submitBtns = document.querySelectorAll('.submit-btn');
+  const statusEls = document.querySelectorAll('.status');
+  
+  submitBtns.forEach(btn => {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  });
+  
+  statusEls.forEach(status => {
+    status.textContent = "";
+    status.className = "status";
+  });
+});
+</script>
+</body>
+</html>
