@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import json
 import typing as t
 from flask import Flask, request, send_file, render_template, Response
 import requests
@@ -18,7 +19,13 @@ BRANDPAGE_ACTOR_ID = "apify~instagram-reel-scraper"
 TAGGED_ACTOR_ID = "apify~instagram-tagged-scraper"
 PROFILE_ACTOR_ID = "logical_scrapers~instagram-profile-scraper"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
-SERVICE_ACCOUNT_FILE = "service_account.json"
+
+# Load service account from environment variable
+SERVICE_ACCOUNT_JSON = os.getenv("SERVICE_ACCOUNT_JSON")
+if not SERVICE_ACCOUNT_JSON:
+    raise RuntimeError("SERVICE_ACCOUNT_JSON environment variable not set")
+
+SERVICE_ACCOUNT_INFO = json.loads(SERVICE_ACCOUNT_JSON)
 
 if not APIFY_TOKEN:
     raise RuntimeError("Set your APIFY_TOKEN in environment or .env file")
@@ -285,8 +292,8 @@ def brandpage_tagged():
 # ----------------------------
 
 def get_gsheet_service():
-    creds = Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE,
+    creds = Credentials.from_service_account_info(
+        SERVICE_ACCOUNT_INFO,
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     return build("sheets", "v4", credentials=creds).spreadsheets()
