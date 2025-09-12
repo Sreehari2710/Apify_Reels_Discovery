@@ -1,16 +1,25 @@
+# app.py (complete - replace your existing file with this)
+
 import csv
 import io
 import os
 import typing as t
 import json
-from flask import Flask, request, send_file, render_template, Response
+import threading
+import uuid
+import traceback
+import time
+
+from flask import Flask, request, send_file, render_template, Response, jsonify
 import requests
 import pandas as pd
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
+# ----------------------------
 # Load environment variables
+# ----------------------------
 load_dotenv()
 
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
@@ -21,11 +30,13 @@ PROFILE_ACTOR_ID = "logical_scrapers~instagram-profile-scraper"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "/etc/secrets/service_account.json")
 
-
-# Load IG cookies JSON
+# ----------------------------
+# Validate required env vars early
+# ----------------------------
 IG_COOKIES = os.getenv("IG_COOKIES")
 if not IG_COOKIES:
-    raise RuntimeError("Set IG_COOKIES in .env file")
+    raise RuntimeError("Set IG_COOKIES in environment (or .env)")
+
 try:
     IG_COOKIES_JSON = json.loads(IG_COOKIES)
 except Exception:
@@ -33,6 +44,12 @@ except Exception:
 
 if not APIFY_TOKEN:
     raise RuntimeError("Set your APIFY_TOKEN in environment or .env file")
+
+# Ensure service account file exists (if you plan to use Google Sheets)
+if GOOGLE_SHEET_ID:
+    if not os.path.exists(SERVICE_ACCOUNT_FILE):
+        # do not crash here — we'll raise when attempting to use sheets if missing
+        print(f"Warning: SERVICE_ACCOUNT_FILE not found at {SERVICE_ACCOUNT_FILE}. Google Sheets calls will fail.")
 
 app = Flask(__name__)
 
@@ -61,39 +78,26 @@ def fetch_apify_hashtag_data(keywords: t.List[str], max_items: int) -> t.List[di
     """
     Fetch Instagram usernames by hashtags using Apify's coderx~instagram-hashtag-username-scraper actor.
     """
-    HASHTAG_ACTOR_ID = "coderx~instagram-hashtag-username-scraper"
     url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items"
-    
     results = []
-    
     for keyword in keywords:
         payload = {
             "Max_items": max_items,
-            "cookies": IG_COOKIES_JSON,  # IG_COOKIES_JSON should be a list of cookie dicts
+            "cookies": IG_COOKIES_JSON,
             "keyword": keyword
         }
-        params = {
-            "token": APIFY_TOKEN,
-            "waitForFinish": 1200
-        }
-        
+        params = {"token": APIFY_TOKEN, "waitForFinish": 1200}
         try:
-            r = requests.post(url, params=params, json=payload, timeout=600)
+            r = requests.post(url, params=params, json=payload, timeout=120)
             r.raise_for_status()
             data = r.json()
-            
-            # Ensure the response is a list
             if isinstance(data, list):
                 results.extend(data)
             else:
                 print(f"Warning: Unexpected response for keyword '{keyword}': {data}")
-                
         except requests.exceptions.RequestException as e:
             print(f"Error fetching data for '{keyword}': {e}")
-    
     return results
-
-
 
 def extract_row(item: dict):
     return {
@@ -127,14 +131,12 @@ def fetch_hashtag():
         csv_bytes.seek(0)
         return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name=f"{filename_base}.csv")
     except Exception as e:
+        traceback.print_exc()
         return Response(f"Error: {str(e)}", status=500)
 
-
-
 # ----------------------------
-# BRANDPAGE REELS SCRAPER
+# BRANDPAGE REELS / TAGGED (unchanged)
 # ----------------------------
-
 def fetch_brandpage_reels(brand_page: str, per_page: int) -> t.List[dict]:
     url = f"https://api.apify.com/v2/acts/{BRANDPAGE_ACTOR_ID}/run-sync-get-dataset-items"
     params = {"token": APIFY_TOKEN, "waitForFinish": 1200}
@@ -145,7 +147,7 @@ def fetch_brandpage_reels(brand_page: str, per_page: int) -> t.List[dict]:
         "proxy": {"useApifyProxy": True},
     }
     try:
-        r = requests.post(url, params=params, json=payload, timeout=600)
+        r = requests.post(url, params=params, json=payload, timeout=120)
         r.raise_for_status()
         data = r.json()
         return data if isinstance(data, list) else []
@@ -213,11 +215,8 @@ def brandpage_reels():
         )
 
     except Exception as e:
+        traceback.print_exc()
         return Response(f"Error: {str(e)}", status=500)
-
-# ----------------------------
-# BRANDPAGE TAGGED SCRAPER
-# ----------------------------
 
 def fetch_brandpage_tagged(brand_page: str, limit: int) -> t.List[dict]:
     url = f"https://api.apify.com/v2/acts/{TAGGED_ACTOR_ID}/run-sync-get-dataset-items"
@@ -228,7 +227,7 @@ def fetch_brandpage_tagged(brand_page: str, limit: int) -> t.List[dict]:
         "proxy": {"useApifyProxy": True},
     }
     try:
-        r = requests.post(url, params=params, json=payload, timeout=600)
+        r = requests.post(url, params=params, json=payload, timeout=120)
         r.raise_for_status()
         data = r.json()
         return data if isinstance(data, list) else []
@@ -298,6 +297,7 @@ def brandpage_tagged():
         )
 
     except Exception as e:
+        traceback.print_exc()
         return Response(f"Error: {str(e)}", status=500)
 
 # ----------------------------
@@ -305,6 +305,7 @@ def brandpage_tagged():
 # ----------------------------
 
 def get_gsheet_service():
+    # This will raise if SERVICE_ACCOUNT_FILE is missing or invalid
     creds = Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE,
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
@@ -312,97 +313,126 @@ def get_gsheet_service():
     return build("sheets", "v4", credentials=creds).spreadsheets()
 
 def append_to_gsheet(data):
-    service = get_gsheet_service()
-    body = {"values": data}
-    service.values().append(
-        spreadsheetId=GOOGLE_SHEET_ID,
-        range="Sheet1!A1",
-        valueInputOption="RAW",
-        body=body
-    ).execute()
+    if not GOOGLE_SHEET_ID:
+        print("GOOGLE_SHEET_ID not set; skipping append_to_gsheet")
+        return
+    try:
+        service = get_gsheet_service()
+        body = {"values": data}
+        service.values().append(
+            spreadsheetId=GOOGLE_SHEET_ID,
+            range="Sheet1!A1",
+            valueInputOption="RAW",
+            body=body
+        ).execute()
+    except Exception:
+        traceback.print_exc()
+        # don't crash job if sheet write fails
 
-def fetch_profiles(usernames):
+def fetch_profiles_batch(usernames_batch: t.List[str]) -> t.List[dict]:
+    """
+    Make a single small call to the Apify profile scraper for a batch of usernames.
+    Keep small to avoid timeouts / memory
+    """
     url = f"https://api.apify.com/v2/acts/{PROFILE_ACTOR_ID}/run-sync-get-dataset-items"
     params = {"token": APIFY_TOKEN, "waitForFinish": 1200}
-    payload = {"username": usernames}
-    r = requests.post(url, params=params, json=payload, timeout=600)
-    r.raise_for_status()
-    return r.json()
-
-@app.route("/filter-csv", methods=["POST"])
-def filter_csv():
+    payload = {"username": usernames_batch}
     try:
-        if "csv_file" not in request.files:
-            return Response("Upload a CSV", status=400)
-        csv_file = request.files["csv_file"]
-        df = pd.read_csv(csv_file)
+        r = requests.post(url, params=params, json=payload, timeout=120)
+        r.raise_for_status()
+        data = r.json()
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        print(f"Error fetching profiles batch: {e}")
+        return []
 
-        # Identify CSV type
-        if "username" in df.columns and "hashtag" in df.columns:  # hashtag CSV
+# ----------------------------
+# Background job system for /filter-csv
+# ----------------------------
+jobs = {}  # job_id -> {"csv": str, "filename": str} or {"error": "..."}
+
+def run_filter_job(job_id, df, filename):
+    """
+    Worker: determines CSV type, extracts usernames, processes in batches,
+    calls fetch_profiles_batch for each batch, builds results CSV and stores in jobs.
+    """
+    try:
+        # Determine CSV type & usernames/query_map
+        if "username" in df.columns and "hashtag" in df.columns:
             csv_type = "hashtag"
             usernames = df["username"].dropna().unique().tolist()
             query_map = dict(zip(df["username"], df.get("hashtag", "")))
-
-        elif "collaborated account url" in df.columns:  # reels CSV
+        elif "collaborated account url" in df.columns:
             csv_type = "reels"
             df["username"] = df["collaborated account url"].dropna().apply(
                 lambda x: x.strip("/").split("/")[-1]
             )
             usernames = df["username"].unique().tolist()
             query_map = dict(zip(df["username"], df.get("brandpage", "")))
-
-        elif "owner_username" in df.columns:  # tagged CSV
+        elif "owner_username" in df.columns:
             csv_type = "tagged"
             usernames = df["owner_username"].dropna().unique().tolist()
             query_map = dict(zip(df["owner_username"], df.get("brandpage", "")))
-
         else:
-            return Response(f"CSV columns not recognized. Found: {list(df.columns)}", status=400)
+            jobs[job_id] = {"error": f"CSV not recognized: {list(df.columns)}"}
+            return
 
-        profiles = fetch_profiles(usernames)
         results = []
-
-        for p in profiles:
-            if p.get("followers", 0) < 1000:
+        batch_size = 10  # conservative; increase if you find reliability
+        for i in range(0, len(usernames), batch_size):
+            batch = usernames[i:i + batch_size]
+            if not batch:
                 continue
+            # call Apify for this batch
+            profiles = fetch_profiles_batch(batch)
+            # iterate profiles
+            for p in profiles:
+                try:
+                    if p.get("followers", 0) < 1000:
+                        continue
+                    username = p.get("username", "")
+                    profile_url = f"https://www.instagram.com/{username}/" if username else ""
+                    query = query_map.get(username, "")
+                    post_count = (p.get("video_count", 0) or 0) + (p.get("image_count", 0) or 0)
 
-            username = p.get("username", "")
-            profile_url = f"https://www.instagram.com/{username}/" if username else ""
-            query = query_map.get(username, "")
+                    related_accounts = p.get("social_links", []) + p.get("website_links", [])
+                    related_accounts_str = ", ".join([str(acc).replace("\n", " ").replace(",", ";") for acc in related_accounts])
 
-            post_count = (p.get("video_count", 0) or 0) + (p.get("image_count", 0) or 0)
+                    email_list = p.get("emails") or p.get("all_emails") or []
+                    email_str = ", ".join([str(e).replace("\n", " ").replace(",", ";") for e in email_list])
 
-            # Related accounts
-            related_accounts = p.get("social_links", []) + p.get("website_links", [])
-            related_accounts_str = ", ".join([str(acc).replace("\n", " ").replace(",", ";") for acc in related_accounts])
+                    phone_list = p.get("phones") or p.get("all_phone_numbers") or []
+                    phone_str = ", ".join([str(ph).replace("\n", " ").replace(",", ";") for ph in phone_list])
 
-            # Emails
-            email_list = p.get("emails") or p.get("all_emails") or []
-            email_str = ", ".join([str(e).replace("\n", " ").replace(",", ";") for e in email_list])
+                    bio = str(p.get("bio", "")).replace("\n", " ").replace(",", ";")
 
-            # Phones
-            phone_list = p.get("phones") or p.get("all_phone_numbers") or []
-            phone_str = ", ".join([str(ph).replace("\n", " ").replace(",", ";") for ph in phone_list])
+                    results.append([
+                        csv_type,
+                        query,
+                        username,
+                        profile_url,
+                        p.get("followers", ""),
+                        post_count,
+                        bio,
+                        related_accounts_str,
+                        email_str,
+                        phone_str
+                    ])
+                except Exception:
+                    # per-profile safe handling
+                    traceback.print_exc()
+                    continue
 
-            # Bio
-            bio = str(p.get("bio", "")).replace("\n", " ").replace(",", ";")
+            # small sleep to be gentle on API and avoid bursts
+            time.sleep(0.5)
 
-            results.append([
-                csv_type,
-                query,
-                username,
-                profile_url,
-                p.get("followers", ""),
-                post_count,
-                bio,
-                related_accounts_str,
-                email_str,
-                phone_str
-            ])
+        # Try to append to Google Sheet; don't fail job if sheet write fails
+        try:
+            append_to_gsheet(results)
+        except Exception:
+            traceback.print_exc()
 
-        append_to_gsheet(results)
-
-        # Write CSV with quoting
+        # Prepare CSV
         output = io.StringIO()
         writer = csv.writer(output, quoting=csv.QUOTE_ALL)
         writer.writerow([
@@ -411,20 +441,59 @@ def filter_csv():
         ])
         writer.writerows(results)
 
-        csv_bytes = io.BytesIO(output.getvalue().encode("utf-8"))
-        csv_bytes.seek(0)
-        filename = (request.form.get("filename") or "filtered") + ".csv"
-        return send_file(
-            csv_bytes, mimetype="text/csv", as_attachment=True, download_name=filename
-        )
-
+        jobs[job_id] = {"csv": output.getvalue(), "filename": filename}
     except Exception as e:
+        traceback.print_exc()
+        jobs[job_id] = {"error": str(e)}
+
+# ----------------------------
+# /filter-csv route (non-blocking)
+# ----------------------------
+@app.route("/filter-csv", methods=["POST"])
+def filter_csv():
+    try:
+        if "csv_file" not in request.files:
+            return Response("Upload a CSV", status=400)
+        csv_file = request.files["csv_file"]
+        df = pd.read_csv(csv_file)
+
+        filename = (request.form.get("filename") or "filtered") + ".csv"
+        job_id = str(uuid.uuid4())
+
+        # start background worker
+        thread = threading.Thread(target=run_filter_job, args=(job_id, df, filename))
+        thread.daemon = True
+        thread.start()
+
+        # return job id immediately
+        return jsonify({"job_id": job_id, "status": "processing"})
+    except Exception as e:
+        traceback.print_exc()
         return Response(f"Error: {str(e)}", status=500)
 
 # ----------------------------
-# ROUTES
+# result endpoint - poll this to download
 # ----------------------------
+@app.route("/result/<job_id>", methods=["GET"])
+def get_result(job_id):
+    try:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"status": "processing"}), 202
+        if "error" in job:
+            return jsonify({"status": "failed", "error": job["error"]}), 500
 
+        csv_bytes = io.BytesIO(job["csv"].encode("utf-8"))
+        csv_bytes.seek(0)
+        return send_file(csv_bytes, mimetype="text/csv", as_attachment=True,
+                         download_name=job["filename"])
+    except Exception as e:
+        traceback.print_exc()
+        return Response(f"Error: {str(e)}", status=500)
+
+# ----------------------------
+# ROUTES (frontend pages)
+# ----------------------------
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
@@ -433,5 +502,8 @@ def index():
 def filter_page():
     return render_template("filter.html")
 
+# ----------------------------
+# Run (development)
+# ----------------------------
 if __name__ == "__main__":
     app.run(debug=True)
