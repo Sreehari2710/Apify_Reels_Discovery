@@ -2,23 +2,33 @@ import csv
 import io
 import os
 import typing as t
+import json
 from flask import Flask, request, send_file, render_template, Response
 import requests
-from dotenv import load_dotenv
 import pandas as pd
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
-HASHTAG_ACTOR_ID = "apify~instagram-hashtag-scraper"
+HASHTAG_ACTOR_ID = "coderx/instagram-hashtag-username-scraper"
 BRANDPAGE_ACTOR_ID = "apify~instagram-reel-scraper"
 TAGGED_ACTOR_ID = "apify~instagram-tagged-scraper"
 PROFILE_ACTOR_ID = "logical_scrapers~instagram-profile-scraper"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 SERVICE_ACCOUNT_FILE = "service_account.json"
+
+# Load IG cookies JSON
+IG_COOKIES = os.getenv("IG_COOKIES")
+if not IG_COOKIES:
+    raise RuntimeError("Set IG_COOKIES in .env file")
+try:
+    IG_COOKIES_JSON = json.loads(IG_COOKIES)
+except Exception:
+    raise RuntimeError("IG_COOKIES must be valid JSON")
 
 if not APIFY_TOKEN:
     raise RuntimeError("Set your APIFY_TOKEN in environment or .env file")
@@ -28,7 +38,6 @@ app = Flask(__name__)
 # ----------------------------
 # Utilities
 # ----------------------------
-
 def normalize_hashtags(value: str) -> t.List[str]:
     if not value:
         return []
@@ -42,74 +51,84 @@ def parse_csv_column(file_storage, column: str) -> t.List[str]:
     reader = csv.DictReader(io.StringIO(file_storage.read().decode("utf-8", errors="ignore")))
     if column not in reader.fieldnames:
         raise ValueError(f"CSV must contain '{column}' column")
-    values = []
-    for row in reader:
-        val = row[column].strip()
-        if val:
-            values.append(val)
-    return values
+    return [row[column].strip() for row in reader if row[column].strip()]
 
 # ----------------------------
 # HASHTAG SCRAPER
 # ----------------------------
+def fetch_apify_hashtag_data(keywords: t.List[str], max_items: int) -> t.List[dict]:
+    """
+    Fetch Instagram usernames by hashtags using Apify's coderx~instagram-hashtag-username-scraper actor.
+    """
+    HASHTAG_ACTOR_ID = "coderx~instagram-hashtag-username-scraper"
+    url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items"
+    
+    results = []
+    
+    for keyword in keywords:
+        payload = {
+            "Max_items": max_items,
+            "cookies": IG_COOKIES_JSON,  # IG_COOKIES_JSON should be a list of cookie dicts
+            "keyword": keyword
+        }
+        params = {
+            "token": APIFY_TOKEN,
+            "waitForFinish": 1200
+        }
+        
+        try:
+            r = requests.post(url, params=params, json=payload, timeout=600)
+            r.raise_for_status()
+            data = r.json()
+            
+            # Ensure the response is a list
+            if isinstance(data, list):
+                results.extend(data)
+            else:
+                print(f"Warning: Unexpected response for keyword '{keyword}': {data}")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching data for '{keyword}': {e}")
+    
+    return results
 
-def fetch_apify_hashtag_data(hashtags: t.List[str], per_hashtag: int) -> t.List[dict]:
-    url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items?token={APIFY_TOKEN}&waitForFinish=1200"
-    payload = {
-        "hashtags": hashtags,
-        "resultsLimit": per_hashtag,
-        "resultsType": "stories",  # Only reels
-        "proxy": {"useApifyProxy": True}
-    }
-    r = requests.post(url, json=payload, timeout=600)
-    r.raise_for_status()
-    return r.json()
 
-def extract_row(item: dict, hashtag: str):
-    fullname = item.get("user", {}).get("fullName") or item.get("ownerFullName") or ""
-    username = item.get("user", {}).get("username") or item.get("ownerUsername") or ""
-    shortcode = item.get("shortcode") or item.get("shortCode") or ""
-    url = f"https://www.instagram.com/reel/{shortcode}/" if shortcode else item.get("url", "")
-    likes = item.get("likeCount") or item.get("likesCount") or ""
-    comments = item.get("commentCount") or item.get("commentsCount") or ""
+
+def extract_row(item: dict):
     return {
-        "hashtag": hashtag,
-        "owner fullname": fullname,
-        "owner username": username,
-        "url": url,
-        "likecount": likes,
-        "comments": comments
+        "hashtag": item.get("search_keyword", ""),
+        "caption": item.get("caption", ""),
+        "username": item.get("username", "")
     }
 
 @app.route("/fetch", methods=["POST"])
 def fetch_hashtag():
     try:
-        tags = []
-        single = request.form.get("hashtag", "").strip()
-        tags.extend(normalize_hashtags(single))
+        tags = normalize_hashtags(request.form.get("hashtag", "").strip())
         if "csv_file" in request.files and request.files["csv_file"].filename:
             tags.extend(parse_csv_column(request.files["csv_file"], "hashtag"))
         tags = list(dict.fromkeys(tags))
         if not tags:
             return Response("Provide at least one hashtag", status=400)
 
-        per_hashtag = max(1, min(int(request.form.get("limit", 20)), 1000))
-        filename_base = "".join(c if c.isalnum() else "_" for c in (request.form.get("filename") or "reels_export"))
-        items = fetch_apify_hashtag_data(tags, per_hashtag)
+        max_items = max(1, min(int(request.form.get("limit", 20)), 1000))
+        filename_base = "".join(c if c.isalnum() else "_" for c in (request.form.get("filename") or "hashtag_export"))
+
+        items = fetch_apify_hashtag_data(tags, max_items)
 
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=["hashtag", "owner fullname", "owner username", "url", "likecount", "comments"])
+        writer = csv.DictWriter(output, fieldnames=["hashtag(search_keyword)", "caption", "username"])
         writer.writeheader()
         for i in items:
-            tag = (i.get("hashtags")[0] if i.get("hashtags") else "")
-            writer.writerow(extract_row(i, tag))
+            writer.writerow(extract_row(i))
 
         csv_bytes = io.BytesIO(output.getvalue().encode("utf-8"))
         csv_bytes.seek(0)
         return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name=f"{filename_base}.csv")
-
     except Exception as e:
         return Response(f"Error: {str(e)}", status=500)
+
+
 
 # ----------------------------
 # BRANDPAGE REELS SCRAPER
@@ -318,10 +337,10 @@ def filter_csv():
         df = pd.read_csv(csv_file)
 
         # Identify CSV type
-        if "owner username" in df.columns:  # hashtag CSV
+        if "username" in df.columns and "hashtag" in df.columns:  # hashtag CSV
             csv_type = "hashtag"
-            usernames = df["owner username"].dropna().unique().tolist()
-            query_map = dict(zip(df["owner username"], df.get("hashtag", "")))
+            usernames = df["username"].dropna().unique().tolist()
+            query_map = dict(zip(df["username"], df.get("hashtag", "")))
 
         elif "collaborated account url" in df.columns:  # reels CSV
             csv_type = "reels"
@@ -337,7 +356,7 @@ def filter_csv():
             query_map = dict(zip(df["owner_username"], df.get("brandpage", "")))
 
         else:
-            return Response("CSV columns not recognized", status=400)
+            return Response(f"CSV columns not recognized. Found: {list(df.columns)}", status=400)
 
         profiles = fetch_profiles(usernames)
         results = []
@@ -354,21 +373,18 @@ def filter_csv():
 
             # Related accounts
             related_accounts = p.get("social_links", []) + p.get("website_links", [])
-            related_accounts_str = ", ".join(related_accounts)
+            related_accounts_str = ", ".join([str(acc).replace("\n", " ").replace(",", ";") for acc in related_accounts])
 
             # Emails
-            email = None
-            if p.get("emails"):
-                email = p["emails"][0]
-            elif p.get("all_emails"):
-                email = p["all_emails"][0]
+            email_list = p.get("emails") or p.get("all_emails") or []
+            email_str = ", ".join([str(e).replace("\n", " ").replace(",", ";") for e in email_list])
 
             # Phones
-            phone = None
-            if p.get("phones"):
-                phone = p["phones"][0]
-            elif p.get("all_phone_numbers"):
-                phone = p["all_phone_numbers"][0]
+            phone_list = p.get("phones") or p.get("all_phone_numbers") or []
+            phone_str = ", ".join([str(ph).replace("\n", " ").replace(",", ";") for ph in phone_list])
+
+            # Bio
+            bio = str(p.get("bio", "")).replace("\n", " ").replace(",", ";")
 
             results.append([
                 csv_type,
@@ -377,16 +393,17 @@ def filter_csv():
                 profile_url,
                 p.get("followers", ""),
                 post_count,
-                p.get("bio", ""),
+                bio,
                 related_accounts_str,
-                email or "",
-                phone or ""
+                email_str,
+                phone_str
             ])
 
         append_to_gsheet(results)
 
+        # Write CSV with quoting
         output = io.StringIO()
-        writer = csv.writer(output)
+        writer = csv.writer(output, quoting=csv.QUOTE_ALL)
         writer.writerow([
             "query type", "query", "username", "url", "followers",
             "postcount", "Bio", "related accounts", "email", "phone number"
