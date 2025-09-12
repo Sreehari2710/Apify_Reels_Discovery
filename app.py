@@ -19,7 +19,8 @@ BRANDPAGE_ACTOR_ID = "apify~instagram-reel-scraper"
 TAGGED_ACTOR_ID = "apify~instagram-tagged-scraper"
 PROFILE_ACTOR_ID = "logical_scrapers~instagram-profile-scraper"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
-SERVICE_ACCOUNT_FILE = "service_account.json"
+SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "/etc/secrets/service_account.json")
+
 
 # Load IG cookies JSON
 IG_COOKIES = os.getenv("IG_COOKIES")
