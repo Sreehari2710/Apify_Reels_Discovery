@@ -1,0 +1,32 @@
+# render.yaml
+services:
+- type: web
+  name: apify-reels-discovery
+  env: python
+  region: oregon
+  plan: starter # or higher for better performance
+  buildCommand: |
+    pip install --upgrade pip
+    pip install -r requirements.txt
+  startCommand: |
+    gunicorn \
+      --bind 0.0.0.0:$PORT \
+      --workers 1 \
+      --threads 2 \
+      --timeout 600 \
+      --keep-alive 2 \
+      --max-requests 100 \
+      --max-requests-jitter 10 \
+      --preload \
+      app:app
+  envVars:
+  - key: PYTHON_VERSION
+    value: 3.11.0
+  - key: WEB_CONCURRENCY
+    value: 1
+  - key: PYTHONUNBUFFERED
+    value: 1
+  disk:
+    name: temp-storage
+    mountPath: /tmp
+    sizeGB: 1

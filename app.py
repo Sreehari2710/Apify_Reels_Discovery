@@ -3,7 +3,9 @@ import io
 import os
 import typing as t
 import json
-from flask import Flask, request, send_file, render_template, Response
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from flask import Flask, request, send_file, render_template, Response, jsonify
 import requests
 import pandas as pd
 from google.oauth2.service_account import Credentials
@@ -53,56 +55,82 @@ def parse_csv_column(file_storage, column: str) -> t.List[str]:
         raise ValueError(f"CSV must contain '{column}' column")
     return [row[column].strip() for row in reader if row[column].strip()]
 
-# ----------------------------
-# HASHTAG SCRAPER
-# ----------------------------
-def fetch_apify_hashtag_data(keywords: t.List[str], max_items: int) -> t.List[dict]:
-    """
-    Fetch Instagram usernames by hashtags using Apify's coderx~instagram-hashtag-username-scraper actor.
-    """
-    HASHTAG_ACTOR_ID = "coderx~instagram-hashtag-username-scraper"
-    url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items"
-    
-    results = []
-    
-    for keyword in keywords:
-        payload = {
-            "Max_items": max_items,
-            "cookies": IG_COOKIES_JSON,  # IG_COOKIES_JSON should be a list of cookie dicts
-            "keyword": keyword
-        }
-        params = {
-            "token": APIFY_TOKEN,
-            "waitForFinish": 1200
-        }
-        
+def make_apify_request(url: str, params: dict, payload: dict, max_retries: int = 3) -> t.List[dict]:
+    """Make Apify API request with retries and better error handling."""
+    for attempt in range(max_retries):
         try:
-            r = requests.post(url, params=params, json=payload, timeout=600)
+            # Reduced timeout from 600 to 120 seconds
+            r = requests.post(url, params=params, json=payload, timeout=120)
             r.raise_for_status()
             data = r.json()
-            
-            if isinstance(data, list):
-                results.extend(data)
-            else:
-                print(f"Warning: Unexpected response for keyword '{keyword}': {data}")
-                
+            return data if isinstance(data, list) else []
+        except requests.exceptions.Timeout:
+            print(f"Timeout on attempt {attempt + 1}")
+            if attempt == max_retries - 1:
+                return []
+            time.sleep(2 ** attempt)  # Exponential backoff
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching data for '{keyword}': {e}")
+            print(f"Request error on attempt {attempt + 1}: {e}")
+            if attempt == max_retries - 1:
+                return []
+            time.sleep(1)
+    return []
+
+# ----------------------------
+# HASHTAG SCRAPER - OPTIMIZED
+# ----------------------------
+def fetch_single_hashtag(keyword: str, max_items: int) -> t.List[dict]:
+    """Fetch data for a single hashtag."""
+    url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items"
+    
+    payload = {
+        "Max_items": min(max_items, 200),  # Limit per request to avoid timeouts
+        "cookies": IG_COOKIES_JSON,
+        "keyword": keyword
+    }
+    params = {
+        "token": APIFY_TOKEN,
+        "waitForFinish": 300  # Reduced from 1200 to 300 seconds
+    }
+    
+    return make_apify_request(url, params, payload)
+
+def fetch_apify_hashtag_data(keywords: t.List[str], max_items: int) -> t.List[dict]:
+    """
+    Fetch Instagram usernames by hashtags using parallel processing.
+    """
+    results = []
+    
+    # Process in smaller batches to avoid timeouts
+    batch_size = min(5, len(keywords))  # Process max 5 hashtags in parallel
+    
+    for i in range(0, len(keywords), batch_size):
+        batch = keywords[i:i + batch_size]
+        
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_keyword = {
+                executor.submit(fetch_single_hashtag, keyword, max_items): keyword 
+                for keyword in batch
+            }
+            
+            for future in as_completed(future_to_keyword):
+                keyword = future_to_keyword[future]
+                try:
+                    data = future.result(timeout=150)  # 150 second timeout per thread
+                    results.extend(data)
+                    print(f"Successfully fetched {len(data)} items for keyword: {keyword}")
+                except Exception as e:
+                    print(f"Error fetching data for '{keyword}': {e}")
     
     return results
 
-
 def extract_row(item: dict):
-    """
-    Ensure only the exact keys needed are returned,
-    and missing fields are replaced with empty string.
-    """
+    """Extract row data with proper field mapping."""
     return {
         "hashtag": item.get("search_keyword") or item.get("hashtag") or "",
         "caption": item.get("caption", ""),
         "username": item.get("username", "")
     }
-
 
 @app.route("/fetch", methods=["POST"])
 def fetch_hashtag():
@@ -111,10 +139,21 @@ def fetch_hashtag():
         if "csv_file" in request.files and request.files["csv_file"].filename:
             tags.extend(parse_csv_column(request.files["csv_file"], "hashtag"))
         tags = list(dict.fromkeys(tags))
+        
         if not tags:
             return Response("Provide at least one hashtag", status=400)
 
+        # Allow up to 1000 items but warn about potential timeouts
         max_items = max(1, min(int(request.form.get("limit", 20)), 1000))
+        if max_items > 500:
+            print(f"Warning: Requesting {max_items} items may cause timeouts")
+        
+        # Limit hashtags based on item count to manage total load
+        max_hashtags = 10 if max_items <= 100 else 5 if max_items <= 500 else 2
+        if len(tags) > max_hashtags:
+            tags = tags[:max_hashtags]
+            print(f"Limited to first {max_hashtags} hashtags due to high item count ({max_items})")
+        
         filename_base = "".join(c if c.isalnum() else "_" for c in (request.form.get("filename") or "hashtag_export"))
 
         items = fetch_apify_hashtag_data(tags, max_items)
@@ -124,9 +163,8 @@ def fetch_hashtag():
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
 
-        for i in items:
-            row = extract_row(i)
-            # Only write keys present in fieldnames to avoid errors
+        for item in items:
+            row = extract_row(item)
             row = {k: v for k, v in row.items() if k in fieldnames}
             writer.writerow(row)
 
@@ -138,26 +176,40 @@ def fetch_hashtag():
         return Response(f"Error: {str(e)}", status=500)
 
 # ----------------------------
-# BRANDPAGE REELS SCRAPER
+# BRANDPAGE REELS SCRAPER - OPTIMIZED
 # ----------------------------
-
-def fetch_brandpage_reels(brand_page: str, per_page: int) -> t.List[dict]:
+def fetch_single_brandpage_reels(brand_page: str, per_page: int) -> t.List[dict]:
+    """Fetch reels for a single brand page."""
     url = f"https://api.apify.com/v2/acts/{BRANDPAGE_ACTOR_ID}/run-sync-get-dataset-items"
-    params = {"token": APIFY_TOKEN, "waitForFinish": 1200}
+    params = {"token": APIFY_TOKEN, "waitForFinish": 300}  # Reduced timeout
     payload = {
         "username": [brand_page],
-        "resultsLimit": per_page,
+        "resultsLimit": min(per_page, 100),  # Limit per request
         "includeSharesCount": False,
         "proxy": {"useApifyProxy": True},
     }
-    try:
-        r = requests.post(url, params=params, json=payload, timeout=600)
-        r.raise_for_status()
-        data = r.json()
-        return data if isinstance(data, list) else []
-    except Exception as e:
-        print(f"Error fetching reels for {brand_page}: {e}")
-        return []
+    return make_apify_request(url, params, payload)
+
+def fetch_brandpage_reels_parallel(brand_pages: t.List[str], per_page: int) -> t.List[dict]:
+    """Fetch reels for multiple brand pages in parallel."""
+    results = []
+    
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_to_page = {
+            executor.submit(fetch_single_brandpage_reels, page, per_page): page 
+            for page in brand_pages
+        }
+        
+        for future in as_completed(future_to_page):
+            page = future_to_page[future]
+            try:
+                data = future.result(timeout=150)
+                results.extend([(page, item) for item in data])
+                print(f"Successfully fetched {len(data)} reels for: {page}")
+            except Exception as e:
+                print(f"Error fetching reels for {page}: {e}")
+    
+    return results
 
 @app.route("/brandpage-reels", methods=["POST"])
 def brandpage_reels():
@@ -173,7 +225,11 @@ def brandpage_reels():
         if not brandpages:
             return Response("Provide at least one brandpage", status=400)
 
-        per_page = max(1, min(int(request.form.get("limit", 20)), 100))
+        # Limit brandpages to prevent timeouts
+        if len(brandpages) > 10:
+            brandpages = brandpages[:10]
+
+        per_page = max(1, min(int(request.form.get("limit", 20)), 100))  # Reduced max
         filename_base = "".join(c if c.isalnum() else "_" for c in (request.form.get("filename") or "brandpage_reels"))
 
         output = io.StringIO()
@@ -188,26 +244,26 @@ def brandpage_reels():
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
 
-        for bp in brandpages:
-            reels = fetch_brandpage_reels(bp, per_page)
-            for item in reels:
-                reel_url = item.get("url", "")
-                comments = item.get("commentsCount", "")
-                likes = item.get("likesCount", "")
-                profile_url = f"https://www.instagram.com/{bp}/"
-                collabs = item.get("coauthorProducers", [])
+        page_reel_data = fetch_brandpage_reels_parallel(brandpages, per_page)
+        
+        for bp, item in page_reel_data:
+            reel_url = item.get("url", "")
+            comments = item.get("commentsCount", "")
+            likes = item.get("likesCount", "")
+            profile_url = f"https://www.instagram.com/{bp}/"
+            collabs = item.get("coauthorProducers", [])
 
-                for collab in collabs:
-                    collab_url = f"https://www.instagram.com/{collab.get('username','')}/"
-                    if collab_url != profile_url:
-                        writer.writerow({
-                            "brandpage": bp,
-                            "insta profile url": profile_url,
-                            "collaborated account url": collab_url,
-                            "reel url": reel_url,
-                            "likes": likes,
-                            "comments": comments
-                        })
+            for collab in collabs:
+                collab_url = f"https://www.instagram.com/{collab.get('username','')}/"
+                if collab_url != profile_url:
+                    writer.writerow({
+                        "brandpage": bp,
+                        "insta profile url": profile_url,
+                        "collaborated account url": collab_url,
+                        "reel url": reel_url,
+                        "likes": likes,
+                        "comments": comments
+                    })
 
         csv_bytes = io.BytesIO(output.getvalue().encode("utf-8"))
         csv_bytes.seek(0)
@@ -222,25 +278,18 @@ def brandpage_reels():
         return Response(f"Error: {str(e)}", status=500)
 
 # ----------------------------
-# BRANDPAGE TAGGED SCRAPER
+# BRANDPAGE TAGGED SCRAPER - OPTIMIZED
 # ----------------------------
-
-def fetch_brandpage_tagged(brand_page: str, limit: int) -> t.List[dict]:
+def fetch_single_brandpage_tagged(brand_page: str, limit: int) -> t.List[dict]:
+    """Fetch tagged posts for a single brand page."""
     url = f"https://api.apify.com/v2/acts/{TAGGED_ACTOR_ID}/run-sync-get-dataset-items"
-    params = {"token": APIFY_TOKEN, "waitForFinish": 1200}
+    params = {"token": APIFY_TOKEN, "waitForFinish": 300}
     payload = {
         "username": [brand_page],
-        "resultsLimit": limit,
+        "resultsLimit": min(limit, 100),
         "proxy": {"useApifyProxy": True},
     }
-    try:
-        r = requests.post(url, params=params, json=payload, timeout=600)
-        r.raise_for_status()
-        data = r.json()
-        return data if isinstance(data, list) else []
-    except Exception as e:
-        print(f"Error fetching tagged reels for {brand_page}: {e}")
-        return []
+    return make_apify_request(url, params, payload)
 
 @app.route("/brandpage-tagged", methods=["POST"])
 def brandpage_tagged():
@@ -255,6 +304,10 @@ def brandpage_tagged():
 
         if not brandpages:
             return Response("Provide at least one brandpage", status=400)
+
+        # Limit brandpages
+        if len(brandpages) > 10:
+            brandpages = brandpages[:10]
 
         limit = max(1, min(int(request.form.get("limit", 20)), 100))
         filename_base = "".join(
@@ -274,25 +327,36 @@ def brandpage_tagged():
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
 
-        for bp in brandpages:
-            tagged_posts = fetch_brandpage_tagged(bp, limit)
-            for post in tagged_posts:
-                reel_url = post.get("url", "")
-                likes = post.get("likesCount", "")
-                comments = post.get("commentsCount", "")
-                shares = post.get("reshareCount", "")
-                views = post.get("videoPlayCount") or post.get("igPlayCount", "")
-                owner_username = post.get("ownerUsername", "")
+        # Use parallel processing
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_page = {
+                executor.submit(fetch_single_brandpage_tagged, bp, limit): bp 
+                for bp in brandpages
+            }
+            
+            for future in as_completed(future_to_page):
+                bp = future_to_page[future]
+                try:
+                    tagged_posts = future.result(timeout=150)
+                    for post in tagged_posts:
+                        reel_url = post.get("url", "")
+                        likes = post.get("likesCount", "")
+                        comments = post.get("commentsCount", "")
+                        shares = post.get("reshareCount", "")
+                        views = post.get("videoPlayCount") or post.get("igPlayCount", "")
+                        owner_username = post.get("ownerUsername", "")
 
-                writer.writerow({
-                    "brandpage": bp,
-                    "owner_username": owner_username,
-                    "reel_url": reel_url,
-                    "likes": likes,
-                    "comments": comments,
-                    "shares": shares,
-                    "views": views
-                })
+                        writer.writerow({
+                            "brandpage": bp,
+                            "owner_username": owner_username,
+                            "reel_url": reel_url,
+                            "likes": likes,
+                            "comments": comments,
+                            "shares": shares,
+                            "views": views
+                        })
+                except Exception as e:
+                    print(f"Error processing {bp}: {e}")
 
         csv_bytes = io.BytesIO(output.getvalue().encode("utf-8"))
         csv_bytes.seek(0)
@@ -307,10 +371,11 @@ def brandpage_tagged():
         return Response(f"Error: {str(e)}", status=500)
 
 # ----------------------------
-# PROFILE SCRAPER + FILTERING
+# PROFILE SCRAPER + FILTERING - OPTIMIZED
 # ----------------------------
-
 def get_gsheet_service():
+    if not os.path.exists(SERVICE_ACCOUNT_FILE):
+        return None
     creds = Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE,
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
@@ -318,22 +383,40 @@ def get_gsheet_service():
     return build("sheets", "v4", credentials=creds).spreadsheets()
 
 def append_to_gsheet(data):
-    service = get_gsheet_service()
-    body = {"values": data}
-    service.values().append(
-        spreadsheetId=GOOGLE_SHEET_ID,
-        range="Sheet1!A1",
-        valueInputOption="RAW",
-        body=body
-    ).execute()
+    try:
+        service = get_gsheet_service()
+        if service and GOOGLE_SHEET_ID:
+            body = {"values": data}
+            service.values().append(
+                spreadsheetId=GOOGLE_SHEET_ID,
+                range="Sheet1!A1",
+                valueInputOption="RAW",
+                body=body
+            ).execute()
+    except Exception as e:
+        print(f"Failed to append to Google Sheet: {e}")
 
-def fetch_profiles(usernames):
+def fetch_profiles_batch(usernames: t.List[str]) -> t.List[dict]:
+    """Fetch profiles in batches to avoid timeouts."""
     url = f"https://api.apify.com/v2/acts/{PROFILE_ACTOR_ID}/run-sync-get-dataset-items"
-    params = {"token": APIFY_TOKEN, "waitForFinish": 1200}
-    payload = {"username": usernames}
-    r = requests.post(url, params=params, json=payload, timeout=600)
-    r.raise_for_status()
-    return r.json()
+    params = {"token": APIFY_TOKEN, "waitForFinish": 300}
+    
+    # Process in smaller batches
+    batch_size = 20
+    all_results = []
+    
+    for i in range(0, len(usernames), batch_size):
+        batch = usernames[i:i + batch_size]
+        payload = {"username": batch}
+        
+        try:
+            results = make_apify_request(url, params, payload)
+            all_results.extend(results)
+            print(f"Processed batch {i//batch_size + 1}: {len(results)} profiles")
+        except Exception as e:
+            print(f"Error processing batch {i//batch_size + 1}: {e}")
+    
+    return all_results
 
 @app.route("/filter-csv", methods=["POST"])
 def filter_csv():
@@ -365,7 +448,12 @@ def filter_csv():
         else:
             return Response(f"CSV columns not recognized. Found: {list(df.columns)}", status=400)
 
-        profiles = fetch_profiles(usernames)
+        # Limit usernames to prevent timeouts
+        if len(usernames) > 100:
+            usernames = usernames[:100]
+            print(f"Limited to first 100 usernames to prevent timeout")
+
+        profiles = fetch_profiles_batch(usernames)
         results = []
 
         for p in profiles:
@@ -406,6 +494,7 @@ def filter_csv():
                 phone_str
             ])
 
+        # Try to append to Google Sheet (optional)
         append_to_gsheet(results)
 
         # Write CSV with quoting
@@ -428,9 +517,15 @@ def filter_csv():
         return Response(f"Error: {str(e)}", status=500)
 
 # ----------------------------
+# STATUS ENDPOINT FOR MONITORING
+# ----------------------------
+@app.route("/health", methods=["GET"])
+def health_check():
+    return jsonify({"status": "healthy", "timestamp": time.time()})
+
+# ----------------------------
 # ROUTES
 # ----------------------------
-
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
