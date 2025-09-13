@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
-HASHTAG_ACTOR_ID = "coderx/instagram-hashtag-username-scraper"
+HASHTAG_ACTOR_ID = "coderx~instagram-hashtag-username-scraper"  # Fixed: use ~ instead of /
 BRANDPAGE_ACTOR_ID = "apify~instagram-reel-scraper"
 TAGGED_ACTOR_ID = "apify~instagram-tagged-scraper"
 PROFILE_ACTOR_ID = "logical_scrapers~instagram-profile-scraper"
