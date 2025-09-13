@@ -57,124 +57,66 @@ def parse_csv_column(file_storage, column: str) -> t.List[str]:
 
 def make_apify_request(url: str, params: dict, payload: dict, max_retries: int = 3) -> t.List[dict]:
     """Make Apify API request with retries and better error handling."""
-    print(f"Making Apify request to: {url}")
-    print(f"Payload: {json.dumps(payload, indent=2)}")
-    print(f"Params: {params}")
-    
     for attempt in range(max_retries):
         try:
-            # Progressive timeout: start with 180s, increase for retries
-            timeout = 180 + (attempt * 60)
-            print(f"Attempt {attempt + 1}/{max_retries} with timeout: {timeout}s")
-            
-            r = requests.post(url, params=params, json=payload, timeout=timeout)
-            
-            print(f"Response status: {r.status_code}")
-            print(f"Response headers: {dict(r.headers)}")
-            
+            # Reduced timeout from 600 to 120 seconds
+            r = requests.post(url, params=params, json=payload, timeout=120)
             r.raise_for_status()
             data = r.json()
-            
-            print(f"Response data type: {type(data)}")
-            print(f"Response data length: {len(data) if isinstance(data, (list, dict)) else 'N/A'}")
-            
-            if isinstance(data, list):
-                if data:
-                    print(f"First item sample: {data[0]}")
-                    print(f"All available fields in first item: {list(data[0].keys()) if data[0] else 'No keys'}")
-                else:
-                    print("Empty list returned")
-                return data
-            else:
-                print(f"Unexpected response format: {data}")
-                # Sometimes Apify returns errors as objects, let's check
-                if isinstance(data, dict) and "error" in data:
-                    print(f"API Error: {data['error']}")
-                return []
-                
+            return data if isinstance(data, list) else []
         except requests.exceptions.Timeout:
-            print(f"Timeout ({timeout}s) on attempt {attempt + 1}")
+            print(f"Timeout on attempt {attempt + 1}")
             if attempt == max_retries - 1:
-                print("All attempts failed due to timeout")
                 return []
             time.sleep(2 ** attempt)  # Exponential backoff
-            
         except requests.exceptions.RequestException as e:
             print(f"Request error on attempt {attempt + 1}: {e}")
-            try:
-                if hasattr(e, 'response') and e.response is not None:
-                    print(f"Response text: {e.response.text[:500]}")
-            except:
-                pass
-            if attempt == max_retries - 1:
-                print("All attempts failed due to request errors")
-                return []
-            time.sleep(1)
-            
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error: {e}")
-            print(f"Response text: {r.text[:500]}")
             if attempt == max_retries - 1:
                 return []
             time.sleep(1)
-            
     return []
 
 # ----------------------------
 # HASHTAG SCRAPER - OPTIMIZED
 # ----------------------------
 def fetch_single_hashtag(keyword: str, max_items: int) -> t.List[dict]:
-    """Fetch data for a single hashtag with correct parameter names."""
+    """Fetch data for a single hashtag."""
     url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items"
     
-    # Based on the actor documentation, the correct parameters are:
     payload = {
-        "hashtag": keyword,  # Changed from "keyword" to "hashtag"
-        "max_items": max_items,  # Changed from "Max_items" to "max_items"
-        "cookies": IG_COOKIES_JSON
+        "Max_items": min(max_items, 200),  # Limit per request to avoid timeouts
+        "cookies": IG_COOKIES_JSON,
+        "keyword": keyword
     }
     params = {
         "token": APIFY_TOKEN,
-        "waitForFinish": 900  # Increased timeout for larger requests
+        "waitForFinish": 300  # Reduced from 1200 to 300 seconds
     }
     
-    print(f"Fetching hashtag '{keyword}' with {max_items} items")
-    return make_apify_request(url, params, payload, max_retries=2)
+    return make_apify_request(url, params, payload)
 
 def fetch_apify_hashtag_data(keywords: t.List[str], max_items: int) -> t.List[dict]:
     """
-    Fetch Instagram usernames by hashtags using sequential processing for large requests.
+    Fetch Instagram usernames by hashtags using parallel processing.
     """
     results = []
     
-    # For 1000 items, process sequentially to avoid overwhelming the server
-    if max_items >= 500:
-        print(f"Processing {len(keywords)} hashtags sequentially for {max_items} items each...")
-        for i, keyword in enumerate(keywords):
-            print(f"Processing hashtag {i+1}/{len(keywords)}: {keyword}")
-            try:
-                data = fetch_single_hashtag(keyword, max_items)
-                results.extend(data)
-                print(f"Successfully fetched {len(data)} items for: {keyword}")
-                # Small delay between requests to be respectful
-                if i < len(keywords) - 1:
-                    time.sleep(2)
-            except Exception as e:
-                print(f"Error fetching data for '{keyword}': {e}")
-    else:
-        # For smaller requests, use parallel processing
-        batch_size = min(3, len(keywords))
+    # Process in smaller batches to avoid timeouts
+    batch_size = min(5, len(keywords))  # Process max 5 hashtags in parallel
+    
+    for i in range(0, len(keywords), batch_size):
+        batch = keywords[i:i + batch_size]
         
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             future_to_keyword = {
                 executor.submit(fetch_single_hashtag, keyword, max_items): keyword 
-                for keyword in keywords
+                for keyword in batch
             }
             
             for future in as_completed(future_to_keyword):
                 keyword = future_to_keyword[future]
                 try:
-                    data = future.result(timeout=300)
+                    data = future.result(timeout=150)  # 150 second timeout per thread
                     results.extend(data)
                     print(f"Successfully fetched {len(data)} items for keyword: {keyword}")
                 except Exception as e:
@@ -202,77 +144,44 @@ def extract_row(item: dict):
 @app.route("/fetch", methods=["POST"])
 def fetch_hashtag():
     try:
-        print("=== FETCH HASHTAG REQUEST STARTED ===")
-        
         tags = normalize_hashtags(request.form.get("hashtag", "").strip())
-        print(f"Raw hashtag input: '{request.form.get('hashtag', '')}'")
-        print(f"Normalized tags: {tags}")
-        
         if "csv_file" in request.files and request.files["csv_file"].filename:
-            csv_tags = parse_csv_column(request.files["csv_file"], "hashtag")
-            tags.extend(csv_tags)
-            print(f"CSV tags added: {csv_tags}")
-            
+            tags.extend(parse_csv_column(request.files["csv_file"], "hashtag"))
         tags = list(dict.fromkeys(tags))
-        print(f"Final unique tags: {tags}")
         
         if not tags:
-            print("ERROR: No hashtags provided")
             return Response("Provide at least one hashtag", status=400)
 
         # Allow up to 1000 items but warn about potential timeouts
         max_items = max(1, min(int(request.form.get("limit", 20)), 1000))
-        print(f"Max items requested: {max_items}")
-        
         if max_items > 500:
             print(f"Warning: Requesting {max_items} items may cause timeouts")
         
         # Limit hashtags based on item count to manage total load
         max_hashtags = 10 if max_items <= 100 else 5 if max_items <= 500 else 2
         if len(tags) > max_hashtags:
-            print(f"Limiting from {len(tags)} to {max_hashtags} hashtags due to high item count")
             tags = tags[:max_hashtags]
+            print(f"Limited to first {max_hashtags} hashtags due to high item count ({max_items})")
         
         filename_base = "".join(c if c.isalnum() else "_" for c in (request.form.get("filename") or "hashtag_export"))
-        print(f"Output filename base: {filename_base}")
 
-        print("=== STARTING APIFY DATA FETCH ===")
         items = fetch_apify_hashtag_data(tags, max_items)
-        print(f"Total items fetched: {len(items)}")
-        
-        if items:
-            print(f"Sample item: {items[0]}")
-        else:
-            print("WARNING: No items returned from Apify")
 
         output = io.StringIO()
         fieldnames = ["hashtag", "caption", "username"]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
 
-        rows_written = 0
         for item in items:
             row = extract_row(item)
             row = {k: v for k, v in row.items() if k in fieldnames}
             writer.writerow(row)
-            rows_written += 1
-        
-        print(f"CSV rows written: {rows_written}")
-        
-        csv_content = output.getvalue()
-        print(f"CSV content length: {len(csv_content)} characters")
-        print(f"CSV preview: {csv_content[:200]}...")
 
-        csv_bytes = io.BytesIO(csv_content.encode("utf-8"))
+        csv_bytes = io.BytesIO(output.getvalue().encode("utf-8"))
         csv_bytes.seek(0)
-        
-        print("=== FETCH HASHTAG REQUEST COMPLETED ===")
         return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name=f"{filename_base}.csv")
 
     except Exception as e:
-        print(f"ERROR in fetch_hashtag: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return Response(f"Error: {str(e)}", status=500)
 
 # ----------------------------
@@ -615,149 +524,6 @@ def filter_csv():
 
     except Exception as e:
         return Response(f"Error: {str(e)}", status=500)
-
-# ----------------------------
-# QUICK TEST ENDPOINT - IMPROVED
-# ----------------------------
-@app.route("/test-apify", methods=["GET", "POST"])
-def test_apify():
-    """Test endpoint to verify Apify connection and token."""
-    try:
-        if not APIFY_TOKEN:
-            return jsonify({"error": "APIFY_TOKEN not set"})
-            
-        # Test with a simple actor run - try different parameters
-        url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items"
-        
-        # Start with very minimal request
-        params = {
-            "token": APIFY_TOKEN,
-            "waitForFinish": 120  # Shorter wait for test
-        }
-        
-        # Try minimal payload first
-        test_payloads = [
-            {
-                "hashtag": "fitness",
-                "max_items": 5,
-                "cookies": IG_COOKIES_JSON
-            },
-            {
-                "hashtag": "travel", 
-                "max_items": 3,
-                "cookies": IG_COOKIES_JSON
-            },
-            # Test without cookies to see if that's the issue
-            {
-                "hashtag": "food",
-                "max_items": 2
-            }
-        ]
-        
-        results = []
-        
-        for i, payload in enumerate(test_payloads):
-            try:
-                print(f"Testing payload {i+1}: {payload}")
-                r = requests.post(url, params=params, json=payload, timeout=150)
-                
-                result = {
-                    "test": i+1,
-                    "payload": payload,
-                    "status_code": r.status_code,
-                    "response_length": len(r.text),
-                    "success": r.status_code == 200
-                }
-                
-                if r.status_code == 200:
-                    try:
-                        data = r.json()
-                        result["data_type"] = type(data).__name__
-                        result["data_length"] = len(data) if isinstance(data, list) else "N/A"
-                        result["first_item"] = data[0] if isinstance(data, list) and len(data) > 0 else None
-                    except:
-                        result["json_parse_error"] = True
-                        result["response_preview"] = r.text[:200]
-                else:
-                    result["error_response"] = r.text[:200]
-                    
-                results.append(result)
-                
-                # Stop if we found a working configuration
-                if r.status_code == 200 and isinstance(r.json(), list) and len(r.json()) > 0:
-                    break
-                    
-            except Exception as e:
-                results.append({
-                    "test": i+1,
-                    "payload": payload,
-                    "error": str(e)
-                })
-        
-        return jsonify({
-            "hashtag_actor_id": HASHTAG_ACTOR_ID,
-            "apify_token_set": bool(APIFY_TOKEN),
-            "cookies_set": bool(IG_COOKIES_JSON),
-            "test_results": results,
-            "recommendation": "Check which test worked best and use those parameters"
-        })
-        
-    except Exception as e:
-        import traceback
-        return jsonify({
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        })
-
-@app.route("/validate-cookies", methods=["GET"])
-def validate_cookies():
-    """Validate Instagram cookies format and content."""
-    try:
-        if not IG_COOKIES_JSON:
-            return jsonify({"error": "IG_COOKIES not set"})
-        
-        validation = {
-            "cookies_set": True,
-            "cookies_type": type(IG_COOKIES_JSON).__name__,
-            "cookies_length": len(IG_COOKIES_JSON) if isinstance(IG_COOKIES_JSON, (list, dict)) else "N/A"
-        }
-        
-        if isinstance(IG_COOKIES_JSON, list):
-            validation["is_list"] = True
-            validation["first_cookie_keys"] = list(IG_COOKIES_JSON[0].keys()) if IG_COOKIES_JSON else []
-            
-            # Check for required cookie fields
-            required_fields = ["name", "value", "domain"]
-            if IG_COOKIES_JSON:
-                first_cookie = IG_COOKIES_JSON[0]
-                validation["has_required_fields"] = all(field in first_cookie for field in required_fields)
-                validation["cookie_domains"] = list(set([cookie.get("domain", "") for cookie in IG_COOKIES_JSON[:5]]))
-        else:
-            validation["is_list"] = False
-            validation["actual_type"] = str(type(IG_COOKIES_JSON))
-        
-        return jsonify(validation)
-        
-    except Exception as e:
-        return jsonify({"error": str(e), "cookies_raw": str(IG_COOKIES_JSON)[:200]})
-
-@app.route("/debug", methods=["GET"])
-def debug_info():
-    """Debug endpoint to check environment variables and configuration."""
-    return jsonify({
-        "apify_token_set": bool(APIFY_TOKEN),
-        "apify_token_preview": APIFY_TOKEN[:10] + "..." if APIFY_TOKEN else None,
-        "ig_cookies_set": bool(IG_COOKIES_JSON),
-        "ig_cookies_count": len(IG_COOKIES_JSON) if IG_COOKIES_JSON else 0,
-        "hashtag_actor_id": HASHTAG_ACTOR_ID,
-        "google_sheet_id_set": bool(GOOGLE_SHEET_ID),
-        "service_account_file_exists": os.path.exists(SERVICE_ACCOUNT_FILE),
-        "environment_variables": {
-            "APIFY_TOKEN": "SET" if os.getenv("APIFY_TOKEN") else "NOT SET",
-            "IG_COOKIES": "SET" if os.getenv("IG_COOKIES") else "NOT SET",
-            "GOOGLE_SHEET_ID": "SET" if os.getenv("GOOGLE_SHEET_ID") else "NOT SET"
-        }
-    })
 
 # ----------------------------
 # STATUS ENDPOINT FOR MONITORING
