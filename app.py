@@ -125,9 +125,18 @@ def fetch_apify_hashtag_data(keywords: t.List[str], max_items: int) -> t.List[di
     return results
 
 def extract_row(item: dict):
-    """Extract row data with proper field mapping."""
+    """
+    Extract row data based on the actual output format from the actor.
+    According to the documentation, the output fields are:
+    - search_keyword (the hashtag)
+    - caption (extracted hashtags from captions)
+    - username (Instagram handle)
+    - user_pk (unique user ID)
+    - id (post ID)
+    - code (unique post code)
+    """
     return {
-        "hashtag": item.get("search_keyword") or item.get("hashtag") or "",
+        "hashtag": item.get("search_keyword", ""),
         "caption": item.get("caption", ""),
         "username": item.get("username", "")
     }
