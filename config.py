@@ -13,3 +13,5 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 SERVICE_ACCOUNT_FILE = "service_account.json"
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
