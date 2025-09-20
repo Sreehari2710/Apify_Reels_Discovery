@@ -1,7 +1,15 @@
-# .gitignore
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.pyc
+*.pyd
+*.pyo
+
+# Virtual environment
+venv/
+env/
+
+# Environment variables
 .env
-service_account.json
-.vscode/
-node_modules/
+
+# Specific to this project
+service_account.json 

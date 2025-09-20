@@ -102,14 +102,20 @@ nav a:hover {
   position: relative;
 }
 
-.forms-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 0;
+.forms-container {
   background: white;
   border-radius: 0 0 20px 20px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.1);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.forms-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
 }
 
 .form-section {
@@ -118,10 +124,15 @@ nav a:hover {
   min-height: 500px;
   display: flex;
   flex-direction: column;
+  background: white;
 }
 
 .form-section:last-child {
   border-right: none;
+}
+
+.forms-row:not(:last-child) .form-section {
+  border-bottom: 1px solid #f0f0f0;
 }
 
 .section-header {
@@ -342,17 +353,12 @@ nav a:hover {
 
 /* Responsive Design */
 @media (max-width: 1200px) {
-  .forms-grid {
+  .forms-row {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
-    height: auto;
-    gap: 1px;
   }
   
-  .form-section.hashtag,
-  .form-section.collaborated,
-  .form-section.tagged {
-    grid-row: auto;
+  .form-section {
+    border-right: none !important;
   }
   
   .header h1 {
@@ -394,7 +400,7 @@ nav a:hover {
     padding: 20px;
   }
   
-  .forms-grid {
+  .forms-container {
     border-radius: 0 0 15px 15px;
   }
 }
@@ -419,152 +425,203 @@ nav a:hover {
     <p>Professional Instagram data collection and analysis suite</p>
   </div>
 
-  <div class="forms-grid">
-    <!-- Hashtag Form -->
-    <div class="form-section">
-      <div class="section-header">
-        <div class="section-title"># Hashtag Reels</div>
-        <div class="section-subtitle">Extract reels from hashtags</div>
+  <div class="forms-container">
+    <!-- First Row -->
+    <div class="forms-row">
+      <!-- Hashtag Form -->
+      <div class="form-section">
+        <div class="section-header">
+          <div class="section-title"># Hashtag Reels</div>
+          <div class="section-subtitle">Extract reels from hashtags</div>
+        </div>
+        
+        <form id="hashtagForm">
+          <div class="form-group">
+            <label class="form-label">Hashtag (optional)</label>
+            <div class="input-wrapper">
+              <i class="fas fa-hashtag input-icon"></i>
+              <input type="text" name="hashtag" class="form-input with-icon" placeholder="Enter hashtag">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">CSV File (hashtag column)</label>
+            <div class="file-input-wrapper">
+              <input type="file" name="csv_file" accept=".csv" id="hashtag-csv">
+              <label for="hashtag-csv" class="file-input-label">
+                <i class="fas fa-upload"></i> Choose CSV file
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Reels per hashtag</label>
+            <div class="input-wrapper">
+              <i class="fas fa-film input-icon"></i>
+              <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="1000">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Filename</label>
+            <div class="input-wrapper">
+              <i class="fas fa-file input-icon"></i>
+              <input type="text" name="filename" value="hashtag_reels_export" class="form-input with-icon">
+            </div>
+          </div>
+
+          <button type="submit" class="submit-btn">
+            <i class="fas fa-download"></i> Fetch & Download CSV
+          </button>
+          <div id="status1" class="status"></div>
+        </form>
       </div>
-      
-      <form id="hashtagForm">
-        <div class="form-group">
-          <label class="form-label">Hashtag (optional)</label>
-          <div class="input-wrapper">
-            <i class="fas fa-hashtag input-icon"></i>
-            <input type="text" name="hashtag" class="form-input with-icon" placeholder="Enter hashtag">
-          </div>
-        </div>
 
-        <div class="form-group">
-          <label class="form-label">CSV File (hashtag column)</label>
-          <div class="file-input-wrapper">
-            <input type="file" name="csv_file" accept=".csv" id="hashtag-csv">
-            <label for="hashtag-csv" class="file-input-label">
-              <i class="fas fa-upload"></i> Choose CSV file
-            </label>
-          </div>
+      <!-- Brandpage Reels Form -->
+      <div class="form-section">
+        <div class="section-header">
+          <div class="section-title">🤝 Collaborated Reels</div>
+          <div class="section-subtitle">Find brand collaborations</div>
         </div>
-
-        <div class="form-group">
-          <label class="form-label">Reels per hashtag</label>
-          <div class="input-wrapper">
-            <i class="fas fa-film input-icon"></i>
-            <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="1000">
+        
+        <form id="brandpageForm">
+          <div class="form-group">
+            <label class="form-label">Brandpage (optional)</label>
+            <div class="input-wrapper">
+              <i class="fas fa-at input-icon"></i>
+              <input type="text" name="brandpage" class="form-input with-icon" placeholder="Enter username">
+            </div>
           </div>
-        </div>
 
-        <div class="form-group">
-          <label class="form-label">Filename</label>
-          <div class="input-wrapper">
-            <i class="fas fa-file input-icon"></i>
-            <input type="text" name="filename" value="hashtag_reels_export" class="form-input with-icon">
+          <div class="form-group">
+            <label class="form-label">CSV File (brandpage column)</label>
+            <div class="file-input-wrapper">
+              <input type="file" name="csv_file" accept=".csv" id="brandpage-csv">
+              <label for="brandpage-csv" class="file-input-label">
+                <i class="fas fa-upload"></i> Choose CSV file
+              </label>
+            </div>
           </div>
-        </div>
 
-        <button type="submit" class="submit-btn">
-          <i class="fas fa-download"></i> Fetch & Download CSV
-        </button>
-        <div id="status1" class="status"></div>
-      </form>
+          <div class="form-group">
+            <label class="form-label">Reels per brandpage</label>
+            <div class="input-wrapper">
+              <i class="fas fa-film input-icon"></i>
+              <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="1000">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Filename</label>
+            <div class="input-wrapper">
+              <i class="fas fa-file input-icon"></i>
+              <input type="text" name="filename" value="brandpage_reels_export" class="form-input with-icon">
+            </div>
+          </div>
+
+          <button type="submit" class="submit-btn">
+            <i class="fas fa-download"></i> Fetch & Download CSV
+          </button>
+          <div id="status2" class="status"></div>
+        </form>
+      </div>
     </div>
 
-    <!-- Brandpage Reels Form -->
-    <div class="form-section">
-      <div class="section-header">
-        <div class="section-title">🤝 Collaborated Reels</div>
-        <div class="section-subtitle">Find brand collaborations</div>
+    <!-- Second Row -->
+    <div class="forms-row">
+      <!-- Tagged Reels Form -->
+      <div class="form-section">
+        <div class="section-header">
+          <div class="section-title">🏷️ Tagged Reels</div>
+          <div class="section-subtitle">Extract tagged content</div>
+        </div>
+        
+        <form id="brandpageTaggedForm">
+          <div class="form-group">
+            <label class="form-label">Brandpage (optional)</label>
+            <div class="input-wrapper">
+              <i class="fas fa-at input-icon"></i>
+              <input type="text" name="brandpage" class="form-input with-icon" placeholder="Enter username">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">CSV File (brandpage column)</label>
+            <div class="file-input-wrapper">
+              <input type="file" name="csv_file" accept=".csv" id="tagged-csv">
+              <label for="tagged-csv" class="file-input-label">
+                <i class="fas fa-upload"></i> Choose CSV file
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Tagged reels per brandpage</label>
+            <div class="input-wrapper">
+              <i class="fas fa-film input-icon"></i>
+              <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="1000">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Filename</label>
+            <div class="input-wrapper">
+              <i class="fas fa-file input-icon"></i>
+              <input type="text" name="filename" value="brandpage_tagged_export" class="form-input with-icon">
+            </div>
+          </div>
+
+          <button type="submit" class="submit-btn">
+            <i class="fas fa-download"></i> Fetch & Download CSV
+          </button>
+          <div id="status3" class="status"></div>
+        </form>
       </div>
-      
-      <form id="brandpageForm">
-        <div class="form-group">
-          <label class="form-label">Brandpage (optional)</label>
-          <div class="input-wrapper">
-            <i class="fas fa-at input-icon"></i>
-            <input type="text" name="brandpage" class="form-input with-icon" placeholder="Enter username">
-          </div>
+
+      <!-- YouTube Keyword Form -->
+      <div class="form-section">
+        <div class="section-header">
+          <div class="section-title">🎥 YouTube Keyword</div>
+          <div class="section-subtitle">Fetch videos by keyword</div>
         </div>
-
-        <div class="form-group">
-          <label class="form-label">CSV File (brandpage column)</label>
-          <div class="file-input-wrapper">
-            <input type="file" name="csv_file" accept=".csv" id="brandpage-csv">
-            <label for="brandpage-csv" class="file-input-label">
-              <i class="fas fa-upload"></i> Choose CSV file
-            </label>
+        
+        <form id="youtubeKeywordForm">
+          <div class="form-group">
+            <label class="form-label">Keyword (optional)</label>
+            <div class="input-wrapper">
+              <i class="fas fa-key input-icon"></i>
+              <input type="text" name="keyword" class="form-input with-icon" placeholder="Enter keyword">
+            </div>
           </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Reels per brandpage</label>
-          <div class="input-wrapper">
-            <i class="fas fa-film input-icon"></i>
-            <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="100">
+          <div class="form-group">
+            <label class="form-label">CSV File (keyword column)</label>
+            <div class="file-input-wrapper">
+              <input type="file" name="csv_file" accept=".csv" id="youtube-csv">
+              <label for="youtube-csv" class="file-input-label">
+                <i class="fas fa-upload"></i> Choose CSV file
+              </label>
+            </div>
           </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Filename</label>
-          <div class="input-wrapper">
-            <i class="fas fa-file input-icon"></i>
-            <input type="text" name="filename" value="brandpage_reels_export" class="form-input with-icon">
+          <div class="form-group">
+            <label class="form-label">Videos per keyword</label>
+            <div class="input-wrapper">
+              <i class="fas fa-film input-icon"></i>
+              <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="1000">
+            </div>
           </div>
-        </div>
-
-        <button type="submit" class="submit-btn">
-          <i class="fas fa-download"></i> Fetch & Download CSV
-        </button>
-        <div id="status2" class="status"></div>
-      </form>
-    </div>
-
-    <!-- Tagged Reels Form -->
-    <div class="form-section">
-      <div class="section-header">
-        <div class="section-title">🏷️ Tagged Reels</div>
-        <div class="section-subtitle">Extract tagged content</div>
+          <div class="form-group">
+            <label class="form-label">Filename</label>
+            <div class="input-wrapper">
+              <i class="fas fa-file input-icon"></i>
+              <input type="text" name="filename" value="youtube_keyword_export" class="form-input with-icon">
+            </div>
+          </div>
+          <button type="submit" class="submit-btn">
+            <i class="fas fa-download"></i> Fetch & Download CSV
+          </button>
+          <div id="status4" class="status"></div>
+        </form>
       </div>
-      
-      <form id="brandpageTaggedForm">
-        <div class="form-group">
-          <label class="form-label">Brandpage (optional)</label>
-          <div class="input-wrapper">
-            <i class="fas fa-at input-icon"></i>
-            <input type="text" name="brandpage" class="form-input with-icon" placeholder="Enter username">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">CSV File (brandpage column)</label>
-          <div class="file-input-wrapper">
-            <input type="file" name="csv_file" accept=".csv" id="tagged-csv">
-            <label for="tagged-csv" class="file-input-label">
-              <i class="fas fa-upload"></i> Choose CSV file
-            </label>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Tagged reels per brandpage</label>
-          <div class="input-wrapper">
-            <i class="fas fa-film input-icon"></i>
-            <input type="number" name="limit" value="20" class="form-input with-icon" min="1" max="100">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Filename</label>
-          <div class="input-wrapper">
-            <i class="fas fa-file input-icon"></i>
-            <input type="text" name="filename" value="brandpage_tagged_export" class="form-input with-icon">
-          </div>
-        </div>
-
-        <button type="submit" class="submit-btn">
-          <i class="fas fa-download"></i> Fetch & Download CSV
-        </button>
-        <div id="status3" class="status"></div>
-      </form>
     </div>
   </div>
 </div>
@@ -629,6 +686,7 @@ async function handleForm(formId, url, statusId){
 handleForm('hashtagForm', '/fetch', 'status1');
 handleForm('brandpageForm', '/brandpage-reels', 'status2');
 handleForm('brandpageTaggedForm', '/brandpage-tagged', 'status3');
+handleForm('youtubeKeywordForm', '/youtube-keyword', 'status4');
 
 // File input labels update
 document.addEventListener('change', function(e) {
