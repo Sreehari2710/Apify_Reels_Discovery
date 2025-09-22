@@ -417,14 +417,15 @@
             
             try {
                 const res = await fetch("/filter-csv", { method: "POST", body: fd });
-                if (!res.ok) throw new Error(await res.text());
+                if (!res.ok) {
+                    throw new Error(await res.text() || 'An unknown error occurred.');
+                }
                 
                 const blob = await res.blob();
-                const filename = (fd.get("filename") || "filtered") + ".csv";
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = filename;
+                a.download = (fd.get("filename") || "filtered_profiles") + ".csv";
                 document.body.appendChild(a);
                 a.click();
                 a.remove();

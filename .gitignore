@@ -1,15 +1,28 @@
 # Byte-compiled / optimized / DLL files
+# Environment variables
+.env
+
+# Google Cloud credentials
+service_account.json
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
 *.pyd
 *.pyo
 
 # Virtual environment
 venv/
+.venv/
 env/
+.env/
 
 # Environment variables
 .env
 
 # Specific to this project
 service_account.json 
+# IDE / Editor specific
+.idea/
+.vscode/

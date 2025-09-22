@@ -2,41 +2,26 @@ import io
 import csv
 import typing as t
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Blueprint, request, send_file, Response
+from flask import Blueprint, request, Response, send_file
 from utils import normalize_hashtags, parse_csv_column, make_apify_request
 from config import APIFY_TOKEN, HASHTAG_ACTOR_ID
 
 bp_hashtag = Blueprint("hashtag_scraper", __name__)
 
 # ----------------------------
-# Fetch Single Hashtag
+# Scraper Function
 # ----------------------------
-def fetch_single_hashtag(keyword: str, max_items: int) -> t.List[dict]:
-    """Fetch data for a single hashtag using Apify actor."""
-    url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items"
-    payload = {"hashtags": [keyword], "resultsLimit": min(max_items, 1000)}
-    params = {"token": APIFY_TOKEN, "waitForFinish": 300}
-
-    data = make_apify_request(url, params, payload)
-    print(f"[INFO] Fetched {len(data)} items for hashtag: {keyword}")
-    return data
-
-# ----------------------------
-# Parallel Hashtag Fetch
-# ----------------------------
-def fetch_apify_hashtag_data(keywords: t.List[str], max_items: int) -> t.List[dict]:
+def scrape_hashtags(tags: t.List[str], max_items: int):
     results = []
-    batch_size = min(5, len(keywords))
+    batch_size = min(5, len(tags))  # Process max 5 hashtags in parallel
 
-    for i in range(0, len(keywords), batch_size):
-        batch = keywords[i:i + batch_size]
-
+    for i in range(0, len(tags), batch_size):
+        batch = tags[i:i + batch_size]
         with ThreadPoolExecutor(max_workers=3) as executor:
             future_to_keyword = {
-                executor.submit(fetch_single_hashtag, keyword, max_items): keyword
+                executor.submit(fetch_single_hashtag, keyword, max_items): keyword 
                 for keyword in batch
             }
-
             for future in as_completed(future_to_keyword):
                 keyword = future_to_keyword[future]
                 try:
@@ -46,7 +31,33 @@ def fetch_apify_hashtag_data(keywords: t.List[str], max_items: int) -> t.List[di
                 except Exception as e:
                     print(f"[ERROR] Failed to fetch data for '{keyword}': {e}")
 
-    return results
+    # Process data and prepare for CSV
+    output = io.StringIO()
+    fieldnames = ["hashtag", "username", "user_link", "caption_text"]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for item in results:
+        writer.writerow(extract_row(item))
+
+    # Optionally append to Google Sheet if needed for this scraper
+    # gsheet_data = [[item[key] for key in fieldnames] for item in results]
+    # append_to_gsheet(gsheet_data)
+
+    return output.getvalue()
+
+# ----------------------------
+# Fetch Single Hashtag (Helper for Celery Task)
+# ----------------------------
+def fetch_single_hashtag(keyword: str, max_items: int) -> t.List[dict]:
+    """Fetch data for a single hashtag using Apify actor."""
+    url = f"https://api.apify.com/v2/acts/{HASHTAG_ACTOR_ID}/run-sync-get-dataset-items"
+    payload = {"hashtags": [keyword], "resultsLimit": min(max_items, 1000), "proxy": {"useApifyProxy": True}}
+    params = {"token": APIFY_TOKEN, "waitForFinish": 600} # Increased timeout
+
+    data = make_apify_request(url, params, payload)
+    print(f"[INFO] Fetched {len(data)} items for hashtag: {keyword}")
+    return data
 
 # ----------------------------
 # Extract Row for CSV
@@ -88,24 +99,15 @@ def fetch_hashtag():
             tags = tags[:max_hashtags]
             print(f"[INFO] Limited to first {max_hashtags} hashtags due to high item count ({max_items}).")
 
-        filename_base = "".join(c if c.isalnum() else "_" for c in (request.form.get("filename") or "hashtag_export"))
+        # Run the scraping task synchronously
+        csv_content = scrape_hashtags(tags, max_items)
 
-        # Fetch data
-        items = fetch_apify_hashtag_data(tags, max_items)
-
-        # Write CSV
-        output = io.StringIO()
-        fieldnames = ["hashtag", "username", "user_link", "caption_text"]
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for item in items:
-            writer.writerow(extract_row(item))
-
-        csv_bytes = io.BytesIO(output.getvalue().encode("utf-8"))
+        # Return the CSV file as a download
+        filename = (request.form.get("filename") or "hashtag_reels_export") + ".csv"
+        csv_bytes = io.BytesIO(csv_content.encode("utf-8"))
         csv_bytes.seek(0)
-        return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name=f"{filename_base}.csv")
+        return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name=filename)
 
     except Exception as e:
         print(f"[ERROR] {e}")
-        return Response(f"Error: {str(e)}", status=500)
+        return Response(f"Error processing request: {str(e)}", status=500)

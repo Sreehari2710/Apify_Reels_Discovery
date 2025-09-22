@@ -627,7 +627,7 @@ nav a:hover {
 </div>
 
 <script>
-async function handleForm(formId, url, statusId){
+async function handleForm(formId, endpoint, statusId){
   const form = document.getElementById(formId);
   const statusEl = document.getElementById(statusId);
   const submitBtn = form.querySelector('.submit-btn');
@@ -643,7 +643,7 @@ async function handleForm(formId, url, statusId){
     submitBtn.disabled = true;
     
     try {
-      const res = await fetch(url, {method: 'POST', body: fd});
+      const res = await fetch(endpoint, {method: 'POST', body: fd});
       if (!res.ok) throw new Error(await res.text());
       
       const blob = await res.blob();

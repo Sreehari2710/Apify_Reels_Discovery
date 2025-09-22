@@ -1,11 +1,15 @@
 import os
 import time
-from flask import Flask, render_template
+from flask import Flask, render_template, Response
 from dotenv import load_dotenv
+
+from config import APIFY_TOKEN
 
 # Load environment variables
 load_dotenv()
 
+if not APIFY_TOKEN:
+    raise RuntimeError("Set your APIFY_TOKEN in environment or .env file")
 app = Flask(__name__)
 
 # ----------------------------

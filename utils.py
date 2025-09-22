@@ -26,11 +26,11 @@ def parse_csv_column(file_storage, column: str) -> t.List[str]:
 # ----------------------------
 # Apify Request Utility
 # ----------------------------
-def make_apify_request(url: str, params: dict, payload: dict, max_retries: int = 3) -> t.List[dict]:
+def make_apify_request(url: str, params: dict, payload: dict, max_retries: int = 5) -> t.List[dict]:
     """Send POST request to Apify with retries."""
     for attempt in range(max_retries):
         try:
-            r = requests.post(url, params=params, json=payload, timeout=120)
+            r = requests.post(url, params=params, json=payload, timeout=600)
             r.raise_for_status()
             data = r.json()
             return data if isinstance(data, list) else []
