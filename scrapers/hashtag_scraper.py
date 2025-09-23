@@ -3,6 +3,7 @@ import csv
 import typing as t
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, request, Response, send_file
+import logging
 from utils import normalize_hashtags, parse_csv_column, make_apify_request
 from config import APIFY_TOKEN, HASHTAG_ACTOR_ID
 
@@ -13,23 +14,18 @@ bp_hashtag = Blueprint("hashtag_scraper", __name__)
 # ----------------------------
 def scrape_hashtags(tags: t.List[str], max_items: int):
     results = []
-    batch_size = min(5, len(tags))  # Process max 5 hashtags in parallel
-
-    for i in range(0, len(tags), batch_size):
-        batch = tags[i:i + batch_size]
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            future_to_keyword = {
-                executor.submit(fetch_single_hashtag, keyword, max_items): keyword 
-                for keyword in batch
-            }
-            for future in as_completed(future_to_keyword):
-                keyword = future_to_keyword[future]
-                try:
-                    data = future.result(timeout=150)
-                    results.extend(data)
-                    print(f"[SUCCESS] {len(data)} items added for '{keyword}'")
-                except Exception as e:
-                    print(f"[ERROR] Failed to fetch data for '{keyword}': {e}")
+    # Create the thread pool once for all tasks
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_keyword = {
+            executor.submit(fetch_single_hashtag, keyword, max_items): keyword 
+            for keyword in tags
+        }
+        for future in as_completed(future_to_keyword):
+            keyword = future_to_keyword[future]
+            try:
+                results.extend(future.result())
+            except Exception as e:
+                logging.error(f"[ERROR] Failed to fetch data for '{keyword}': {e}")
 
     # Process data and prepare for CSV
     output = io.StringIO()
@@ -56,7 +52,7 @@ def fetch_single_hashtag(keyword: str, max_items: int) -> t.List[dict]:
     params = {"token": APIFY_TOKEN, "waitForFinish": 600} # Increased timeout
 
     data = make_apify_request(url, params, payload)
-    print(f"[INFO] Fetched {len(data)} items for hashtag: {keyword}")
+    logging.info(f"Fetched {len(data)} items for hashtag: {keyword}")
     return data
 
 # ----------------------------
@@ -91,13 +87,13 @@ def fetch_hashtag():
         # Max items per hashtag
         max_items = max(1, min(int(request.form.get("limit", 20)), 1000))
         if max_items > 500:
-            print(f"[WARNING] Requesting {max_items} items may cause timeouts.")
+            logging.warning(f"Requesting {max_items} items may cause timeouts.")
 
         # Limit number of hashtags to avoid large requests
         max_hashtags = 10 if max_items <= 100 else 5 if max_items <= 500 else 2
         if len(tags) > max_hashtags:
             tags = tags[:max_hashtags]
-            print(f"[INFO] Limited to first {max_hashtags} hashtags due to high item count ({max_items}).")
+            logging.info(f"Limited to first {max_hashtags} hashtags due to high item count ({max_items}).")
 
         # Run the scraping task synchronously
         csv_content = scrape_hashtags(tags, max_items)
@@ -109,5 +105,5 @@ def fetch_hashtag():
         return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name=filename)
 
     except Exception as e:
-        print(f"[ERROR] {e}")
+        logging.error(f"Error in /fetch route: {e}", exc_info=True)
         return Response(f"Error processing request: {str(e)}", status=500)

@@ -1,8 +1,8 @@
 import io
 import csv
 import os
-import pandas as pd
 from flask import Blueprint, request, Response, send_file
+import logging
 from utils import make_apify_request, extract_contact_info_from_bio
 from config import APIFY_TOKEN, PROFILE_ACTOR_ID
 from g_sheets import append_to_gsheet
@@ -24,9 +24,10 @@ def get_category(followers: int) -> str:
 
 # ----------------- Scraper Function -----------------
 def filter_and_scrape_profiles(csv_file_content: str, form_data: dict):
-    df = pd.read_csv(io.StringIO(csv_file_content))
-    headers = set(df.columns.str.strip().str.lower())
-    rows = df.to_dict("records")
+    csv_file = io.StringIO(csv_file_content)
+    reader = csv.DictReader(csv_file)
+    headers = set(h.strip().lower() for h in reader.fieldnames)
+    rows = list(reader)
 
     csv_type = None
     usernames = []
@@ -102,8 +103,8 @@ def fetch_profiles_sync(usernames):
         unique_results = {p.get("username"): p for p in results}.values()
         return list(unique_results)
     except Exception as e:
-        print(f"Error fetching profiles: {e}")
-        return []
+        logging.error(f"Error fetching profiles: {e}")
+        raise  # Re-raise the exception to be caught by the main route handler
 
 # ----------------- Main Filter Route -----------------
 @bp_profile.route("/filter-csv", methods=["POST"])
@@ -124,4 +125,5 @@ def filter_csv():
         return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name=filename)
 
     except Exception as e:
+        logging.error(f"Error in /filter-csv route: {e}", exc_info=True)
         return Response(f"Error processing request: {str(e)}", status=500)

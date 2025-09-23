@@ -3,6 +3,7 @@ import io
 import re
 import requests
 import typing as t
+import logging
 
 # ----------------------------
 # Hashtag and CSV Utilities
@@ -26,21 +27,26 @@ def parse_csv_column(file_storage, column: str) -> t.List[str]:
 # ----------------------------
 # Apify Request Utility
 # ----------------------------
-def make_apify_request(url: str, params: dict, payload: dict, max_retries: int = 5) -> t.List[dict]:
+def make_apify_request(url: str, params: dict, payload: dict, max_retries: int = 3) -> t.List[dict]:
     """Send POST request to Apify with retries."""
+    last_exception = None
     for attempt in range(max_retries):
         try:
-            r = requests.post(url, params=params, json=payload, timeout=600)
+            # The request timeout should be slightly longer than the API's waitForFinish
+            request_timeout = params.get("waitForFinish", 60) + 10
+            r = requests.post(url, params=params, json=payload, timeout=request_timeout)
             r.raise_for_status()
             data = r.json()
             return data if isinstance(data, list) else []
-        except requests.exceptions.Timeout:
-            if attempt == max_retries - 1:
-                return []
-        except requests.exceptions.RequestException:
-            if attempt == max_retries - 1:
-                return []
-    return []
+        except requests.exceptions.RequestException as e:
+            last_exception = e
+            logging.warning(f"Apify request failed on attempt {attempt + 1}/{max_retries}. Retrying... Error: {e}")
+            if r.status_code in [400, 401, 403, 404]:
+                logging.error(f"Client error {r.status_code}. Not retrying. Response: {r.text}")
+                break # Don't retry on client errors like bad input or auth failure
+    
+    # If all retries fail, raise the last captured exception
+    raise last_exception if last_exception else Exception("Apify request failed after all retries.")
 
 # ----------------------------
 # Contact Info Extraction

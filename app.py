@@ -2,8 +2,11 @@ import os
 import time
 from flask import Flask, render_template, Response
 from dotenv import load_dotenv
+import logging
 
 from config import APIFY_TOKEN
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load environment variables
 load_dotenv()

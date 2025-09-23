@@ -1,5 +1,4 @@
 Flask
-pandas
 requests
 apify-client
 google-api-python-client

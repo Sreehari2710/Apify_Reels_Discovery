@@ -2,6 +2,7 @@ import io
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, request, Response, send_file
+import logging
 from utils import parse_csv_column, make_apify_request
 from config import APIFY_TOKEN, TAGGED_ACTOR_ID
 
@@ -52,7 +53,7 @@ def scrape_brandpage_tagged(brandpages: list, limit: int):
                         "views": post.get("videoPlayCount") or post.get("igPlayCount", "")
                     })
             except Exception as e:
-                print(f"Error processing {bp}: {e}")
+                logging.error(f"Error processing tagged page for {bp}: {e}")
                 continue
 
     # Optionally append to Google Sheet if needed for this scraper
@@ -88,4 +89,5 @@ def brandpage_tagged():
         return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name=filename)
 
     except Exception as e:
+        logging.error(f"Error in /brandpage-tagged route: {e}", exc_info=True)
         return Response(f"Error processing request: {str(e)}", status=500)
